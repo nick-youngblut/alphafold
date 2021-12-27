@@ -33,6 +33,7 @@ class HHSearch:
                *,
                binary_path: str,
                databases: Sequence[str],
+               n_cpu: int = 2,
                maxseq: int = 1_000_000):
     """Initializes the Python HHsearch wrapper.
 
@@ -50,6 +51,7 @@ class HHSearch:
     self.binary_path = binary_path
     self.databases = databases
     self.maxseq = maxseq
+    self.n_cpu = n_cpu
 
     for database_path in self.databases:
       if not glob.glob(database_path + '_*'):
@@ -79,6 +81,7 @@ class HHSearch:
       cmd = [self.binary_path,
              '-i', input_path,
              '-o', hhr_path,
+             '-cpu', str(self.n_cpu),
              '-maxseq', str(self.maxseq)
              ] + db_cmd
 

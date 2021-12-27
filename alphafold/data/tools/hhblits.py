@@ -46,7 +46,8 @@ class HHBlits:
                alt: Optional[int] = None,
                p: int = _HHBLITS_DEFAULT_P,
                z: int = _HHBLITS_DEFAULT_Z):
-    """Initializes the Python HHblits wrapper.
+    """
+    Initializes the Python HHblits wrapper.
 
     Args:
       binary_path: The path to the HHblits executable.

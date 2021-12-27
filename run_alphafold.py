@@ -59,6 +59,7 @@ flags.DEFINE_list(
 flags.DEFINE_string('data_dir', None, 'Path to directory of supporting data.')
 flags.DEFINE_string('output_dir', None, 'Path to a directory that will '
                     'store the results.')
+flags.DEFINE_string('output_prefix', None, 'Output file prefix')
 flags.DEFINE_string('jackhmmer_binary_path', shutil.which('jackhmmer'),
                     'Path to the JackHMMER executable.')
 flags.DEFINE_string('hhblits_binary_path', shutil.which('hhblits'),
@@ -116,9 +117,11 @@ flags.DEFINE_integer('random_seed', None, 'The random seed for the data '
 flags.DEFINE_boolean('use_precomputed_msas', False, 'Whether to read MSAs that '
                      'have been written to disk. WARNING: This will not check '
                      'if the sequence, database or configuration have changed.')
+# params for tools
+flags.DEFINE_integer('num_cpus', 12, 'CPUs used')
 
+# FLAGs 
 FLAGS = flags.FLAGS
-
 MAX_TEMPLATE_HITS = 20
 RELAX_MAX_ITERATIONS = 0
 RELAX_ENERGY_TOLERANCE = 2.39
@@ -126,7 +129,7 @@ RELAX_STIFFNESS = 10.0
 RELAX_EXCLUDE_RESIDUES = []
 RELAX_MAX_OUTER_ITERATIONS = 3
 
-
+# functions
 def _check_flag(flag_name: str,
                 other_flag_name: str,
                 should_be_set: bool):
@@ -146,8 +149,11 @@ def predict_structure(
     benchmark: bool,
     random_seed: int,
     is_prokaryote: Optional[bool] = None):
-  """Predicts structure using AlphaFold for the given sequence."""
-  logging.info('Predicting %s', fasta_name)
+  """
+  Predicts structure using AlphaFold for the given sequence.
+  """  
+  logging.info('Predicting {}'.format(fasta_name))
+  
   timings = {}
   output_dir = os.path.join(output_dir_base, fasta_name)
   if not os.path.exists(output_dir):
@@ -156,8 +162,9 @@ def predict_structure(
   if not os.path.exists(msa_output_dir):
     os.makedirs(msa_output_dir)
 
-  # Get features.
+  # Get features
   t_0 = time.time()
+  logging.info('Getting features...')
   if is_prokaryote is None:
     feature_dict = data_pipeline.process(
         input_fasta_path=fasta_path,
@@ -169,16 +176,22 @@ def predict_structure(
         is_prokaryote=is_prokaryote)
   timings['features'] = time.time() - t_0
 
-  # Write out features as a pickled dictionary.
+  # Write out features as a pickled dictionary
+  logging.info('Writing features...')
   features_output_path = os.path.join(output_dir, 'features.pkl')
   with open(features_output_path, 'wb') as f:
     pickle.dump(feature_dict, f, protocol=4)
-
+  logging.info('  Features written: {}'.format(features_output_path))
+  if not FLAGS.use_precomputed_msas:
+    logging.info('  use_precomputed_msas=false; exiting')
+    sys.exit()
+    
   unrelaxed_pdbs = {}
   relaxed_pdbs = {}
   ranking_confidences = {}
 
-  # Run the models.
+  # Run the models
+  logging.info('Running models...')
   num_models = len(model_runners)
   for model_index, (model_name, model_runner) in enumerate(
       model_runners.items()):
@@ -326,7 +339,8 @@ def main(argv):
     template_searcher = hmmsearch.Hmmsearch(
         binary_path=FLAGS.hmmsearch_binary_path,
         hmmbuild_binary_path=FLAGS.hmmbuild_binary_path,
-        database_path=FLAGS.pdb_seqres_database_path)
+        database_path=FLAGS.pdb_seqres_database_path,
+        n_cpu=FLAGS.num_cpus)
     template_featurizer = templates.HmmsearchHitFeaturizer(
         mmcif_dir=FLAGS.template_mmcif_dir,
         max_template_date=FLAGS.max_template_date,
@@ -337,7 +351,8 @@ def main(argv):
   else:
     template_searcher = hhsearch.HHSearch(
         binary_path=FLAGS.hhsearch_binary_path,
-        databases=[FLAGS.pdb70_database_path])
+        databases=[FLAGS.pdb70_database_path],
+        n_cpu=FLAGS.num_cpus)
     template_featurizer = templates.HhsearchHitFeaturizer(
         mmcif_dir=FLAGS.template_mmcif_dir,
         max_template_date=FLAGS.max_template_date,
@@ -357,7 +372,8 @@ def main(argv):
       template_searcher=template_searcher,
       template_featurizer=template_featurizer,
       use_small_bfd=use_small_bfd,
-      use_precomputed_msas=FLAGS.use_precomputed_msas)
+      use_precomputed_msas=FLAGS.use_precomputed_msas,
+      num_cpus=FLAGS.num_cpus)
 
   if run_multimer_system:
     data_pipeline = pipeline_multimer.DataPipeline(
@@ -399,7 +415,7 @@ def main(argv):
   # Predict structure for each of the sequences.
   for i, fasta_path in enumerate(FLAGS.fasta_paths):
     is_prokaryote = is_prokaryote_list[i] if run_multimer_system else None
-    fasta_name = fasta_names[i]
+    fasta_name = str(FLAGS.output_prefix)  #fasta_names[i]
     predict_structure(
         fasta_path=fasta_path,
         fasta_name=fasta_name,
